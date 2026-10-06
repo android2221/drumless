@@ -20,12 +20,20 @@ import numpy as np
 SR = 44100
 Progress = Callable[[str, float], None]  # (stage label, 0..1)
 
-# How hard the DSP method leans on removing transients:
-#   (percussive margin, low-band kick margin or None to skip the kick pass)
-# Higher margin = only clearly-percussive energy is removed (gentler).
-STRENGTH_MARGINS = {"gentle": (3.0, None), "normal": (2.0, 2.0), "aggressive": (1.2, 1.0)}
-KICK_BAND_HZ = 200
+# How hard the DSP method leans on removing drums: a multiplier on every band's margin.
+# Higher = only clearly drum-like energy is removed (gentler, cleaner music).
+STRENGTH_MARGINS = {"gentle": 2.0, "normal": 1.0, "aggressive": 0.5}
 
+# The spectrum is split into three bands, each with the rule that scored best for it against
+# songs with known drum stems (tuned by measurement, not by ear):
+#   bass   - kick vs bass guitar: anything rising above the level sustained over ~0.35 s is kick.
+#   mid    - snare/toms vs vocals and guitars: only broadband bursts go; cautious margin.
+#   treble - hats/cymbals: broadband bursts again, wider frequency kernel, bolder margin.
+BAND_EDGES_HZ = (200, 4000)
+BASS = {"sustain_s": 0.35, "margin": 1.0}
+MID = {"sustain_s": 0.2, "spread_hz": 300, "margin": 2.0}
+TREBLE = {"sustain_s": 0.2, "spread_hz": 1200, "margin": 1.0}
+CROSSFADE = 0.15  # width of the blend between bands, in log-frequency units
 
 # ---------------------------------------------------------------- ffmpeg helpers
 
@@ -123,12 +131,17 @@ def encode(audio: np.ndarray, source: Path, dest: Path, fmt: str, title: str | N
 
 # ---------------------------------------------------------------- DSP (no AI)
 
+def _odd(x: float) -> int:
+    return max(3, int(round(x)) | 1)
+
+
 def remove_drums_dsp(audio: np.ndarray, strength: str = "normal", progress: Progress | None = None) -> np.ndarray:
-    """Harmonic-percussive separation (Fitzgerald 2010) with soft masks.
+    """Median-filter drum removal, with a separate rule per frequency band.
 
     Drums show up as vertical lines in a spectrogram (broadband, short); pitched
-    instruments show up as horizontal lines (narrowband, sustained). Median
-    filtering along each axis estimates the two, and we subtract the percussive part.
+    instruments show up as horizontal lines (narrowband, sustained). A median filter
+    along time estimates what is sustained (music); one along frequency estimates
+    what is broadband (drums). A soft mask removes the drum share of each bin.
 
     The mask is computed once from the mid (L+R) signal and applied to both
     channels so the stereo image doesn't wobble.
@@ -136,34 +149,58 @@ def remove_drums_dsp(audio: np.ndarray, strength: str = "normal", progress: Prog
     import librosa  # imported lazily so the server starts fast
     from scipy.ndimage import median_filter
 
-    n_fft, hop = 4096, 1024
-    margin, kick_margin = STRENGTH_MARGINS.get(strength, STRENGTH_MARGINS["normal"])
+    n_fft, hop = 2048, 512
+    scale = STRENGTH_MARGINS.get(strength, STRENGTH_MARGINS["normal"])
     n = audio.shape[1]
+    eps = 1e-10
 
     if progress:
         progress("Analysing", 0.15)
     specs = [librosa.stft(ch, n_fft=n_fft, hop_length=hop) for ch in audio]
     mag = np.abs(specs[0] + specs[1]) * 0.5
+    freqs = np.arange(mag.shape[0]) * SR / n_fft
+
+    def frames(seconds: float) -> int:
+        return _odd(seconds * SR / hop)
+
+    def band_rows(lo_hz: float, hi_hz: float, pad: int) -> tuple[slice, slice]:
+        """Rows needed to filter [lo_hz, hi_hz] (padded so the edges match a full-height filter),
+        and where the wanted rows sit inside that padded block."""
+        rows = np.flatnonzero((freqs >= lo_hz) & (freqs <= hi_hz))
+        first, last = rows[0], rows[-1] + 1
+        start, stop = max(first - pad, 0), min(last + pad, mag.shape[0])
+        return slice(start, stop), slice(first - start, last - start)
+
+    def sustained(block: np.ndarray, seconds: float) -> np.ndarray:
+        return np.minimum(median_filter(block, size=(1, frames(seconds)), mode="reflect"), block)
+
+    fade = float(np.exp(CROSSFADE))
+    drum = np.zeros_like(mag)  # share of each bin that is drum, 0..1
+
+    # Bass: kick drums are narrow low thumps, so "broadband" doesn't describe them. Treat any
+    # energy that jumps above the sustained level as kick; steady bass notes survive.
+    rows, _ = band_rows(0, BAND_EDGES_HZ[0] * fade, 0)
+    held = sustained(mag[rows], BASS["sustain_s"])
+    burst = mag[rows] - held
+    drum[rows] = burst**2 / (burst**2 + (scale * BASS["margin"] * held) ** 2 + eps)
 
     if progress:
         progress("Finding drums", 0.35)
-    # Long kernels: harmonic filter spans ~0.7 s, percussive filter spans ~330 Hz.
-    _, mask_p = librosa.decompose.hpss(
-        mag, kernel_size=(31, 31), mask=True, margin=(1.0, margin), power=2.0
-    )
+    held = sustained(mag, MID["sustain_s"])  # MID and TREBLE share the same sustain window
+    bands = ((MID, BAND_EDGES_HZ[0] / fade, BAND_EDGES_HZ[1] * fade, BAND_EDGES_HZ[0]),
+             (TREBLE, BAND_EDGES_HZ[1] / fade, freqs[-1], BAND_EDGES_HZ[1]))
+    for cfg, lo_hz, hi_hz, edge in bands:
+        k = _odd(cfg["spread_hz"] * n_fft / SR)
+        padded, inner = band_rows(lo_hz, hi_hz, k)
+        block = mag[padded]
+        broadband = np.minimum(median_filter(block, size=(k, 1), mode="reflect"), block)[inner]
+        rows = slice(padded.start + inner.start, padded.start + inner.stop)
+        mask = broadband**2 / (broadband**2 + (scale * cfg["margin"] * held[rows]) ** 2 + eps)
+        # Cross-fade from the band below, centred on the edge between them.
+        w = np.clip((np.log(np.maximum(freqs[rows], 1.0) / edge) / CROSSFADE + 1) / 2, 0, 1)[:, None]
+        drum[rows] = drum[rows] * (1 - w) + mask * w
 
-    # Kick drums are narrow low-frequency thumps, so the frequency-axis median
-    # misses them and plain HPSS leaves most of the kick in. In the low band,
-    # treat any energy that jumps above the sustained (time-median) level as
-    # percussive. Steady bass survives; the kick's punch is removed.
-    if kick_margin is not None:
-        low = librosa.fft_frequencies(sr=SR, n_fft=n_fft) < KICK_BAND_HZ
-        sustained = median_filter(mag[low], size=(1, 31), mode="reflect")
-        burst = np.maximum(mag[low] - sustained, 0)
-        kick_mask = burst**2 / (burst**2 + (kick_margin * sustained) ** 2 + 1e-10)
-        mask_p[low] = np.maximum(mask_p[low], kick_mask)
-
-    keep = (1.0 - mask_p).astype(np.float32)
+    keep = (1.0 - drum).astype(np.float32)
 
     if progress:
         progress("Rebuilding audio", 0.7)

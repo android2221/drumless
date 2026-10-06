@@ -31,12 +31,13 @@ do that on a network you trust.
 
 ## How it works
 
-- **Classic (no AI)** — harmonic-percussive separation with an extra pass for kick drums.
-  Fast (a few seconds per song) and needs nothing extra. Strength trades drum removal against
-  softening of plucked/strummed attacks:
-  - *Gentle*: snares and hats only, kick mostly stays.
-  - *Normal*: also removes most of the kick's punch.
-  - *Aggressive*: most removal; bass-note attacks soften too.
+- **Classic (no AI)** — splits the spectrum into bass, mid and treble and removes what looks like
+  a drum hit in each: sudden thumps in the bass, short broadband bursts above it. Fast (a few
+  seconds per song) and needs nothing extra, but drums are only turned down, never gone, and
+  plucked/strummed attacks soften. Strength trades drum removal against damage to the music:
+  - *Gentle*: cleanest music, drums a little quieter.
+  - *Normal*: the best balance by measurement.
+  - *Aggressive*: most removal; the music gets noticeably duller.
 - **AI (Demucs)** — Meta's htdemucs model, running on the Mac's GPU. Much cleaner, roughly
   20–40 s per song. Turn it on once with `./start.command --with-ai` (downloads ~2 GB of PyTorch,
   plus an ~80 MB model on the first song).

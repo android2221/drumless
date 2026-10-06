@@ -41,7 +41,9 @@ fi
 # Optional AI mode: ./start.command --with-ai  (one-time ~2 GB download for PyTorch + model)
 if [ "$1" = "--with-ai" ]; then
   echo "Installing Demucs (AI mode)…"
-  .venv/bin/pip install --prefer-binary demucs soundfile -q
+  # demucs 4.0.1: 4.1 needs a Rust-built package with no wheel for Intel-mac Python (same model either way).
+  # numpy<2: the last PyTorch for Intel-mac Python (2.2) can't talk to NumPy 2.
+  .venv/bin/pip install --prefer-binary "demucs==4.0.1" soundfile "numpy<2" -q
 fi
 
 # Open the browser when there's a desktop to open it on (skipped on a headless server).
