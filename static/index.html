@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drumless</title>
+<style>
+  :root {
+    --bg: #f4f1ec; --panel: #fffdf9; --ink: #1d1b19; --muted: #77716a; --line: #e2ddd5;
+    --accent: #d2481f; --accent-ink: #fff; --ok: #2f7d4f; --warn: #9a6b12; --err: #b3261e;
+    --drop: #fbf3ea;
+    font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141312; --panel: #1d1c1a; --ink: #f1ede6; --muted: #9a938a; --line: #2f2d2a;
+      --accent: #f0683c; --accent-ink: #1a0f0a; --ok: #6cc28f; --warn: #e0b45a; --err: #f28b82;
+      --drop: #231d18;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); min-height: 100vh; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 24px; }
+  h1 { font-size: 28px; letter-spacing: -0.02em; margin: 0; }
+  h1 s { text-decoration-thickness: 3px; text-decoration-color: var(--accent); }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .settings { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+              padding: 14px 16px; display: grid; gap: 12px; margin-bottom: 18px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row label { font-size: 13px; color: var(--muted); width: 74px; flex: none; }
+  .folder { flex: 1; min-width: 200px; display: flex; gap: 8px; }
+  input[type=text] { flex: 1; min-width: 0; font: 13px ui-monospace, "SF Mono", Menlo, monospace;
+                     padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+                     background: var(--bg); color: var(--ink); }
+  button { font: inherit; font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed=true] { background: var(--ink); color: var(--bg); }
+  .seg button:disabled { opacity: .4; cursor: not-allowed; }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  #drop { border: 2px dashed var(--line); border-radius: 18px; background: var(--drop);
+          padding: 54px 20px; text-align: center; cursor: pointer; transition: .15s; }
+  #drop.over { border-color: var(--accent); transform: scale(1.01); }
+  #drop strong { display: block; font-size: 18px; margin-bottom: 6px; }
+  #drop span { color: var(--muted); font-size: 14px; }
+  #drop svg { width: 44px; height: 44px; color: var(--accent); margin-bottom: 10px; }
+
+  .listhead { display: flex; justify-content: space-between; align-items: center; margin: 26px 0 10px; }
+  .listhead h2 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 600; }
+  .listhead button { font-size: 12px; padding: 5px 9px; }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  li { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .top { display: flex; gap: 10px; align-items: center; }
+  .name { flex: 1; min-width: 0; }
+  .name b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .name small { color: var(--muted); font-size: 12px; }
+  .badge { font-size: 12px; white-space: nowrap; }
+  .done .badge { color: var(--ok); } .skipped .badge { color: var(--warn); } .error .badge { color: var(--err); }
+  .bar { height: 4px; border-radius: 4px; background: var(--line); margin-top: 10px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .actions button { font-size: 12px; padding: 5px 9px; }
+  audio { height: 32px; flex: 1; min-width: 0; }
+  li.compact { padding: 8px 14px; }
+  li.compact .name small { display: none; }
+  li.compact .name b { font-weight: 500; color: var(--muted); }
+  .err { color: var(--err); font-size: 12px; margin-top: 6px; }
+  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 20px; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink);
+           color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0;
+           transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><s>Drum</s>less</h1>
+    <p>Drop songs. Get them back without drums.</p>
+  </header>
+
+  <section class="settings">
+    <div class="row">
+      <label for="dir">Save to</label>
+      <div class="folder">
+        <input id="dir" type="text" spellcheck="false" autocomplete="off">
+        <button id="pick" title="Choose a folder">Choose…</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>Method</label>
+      <div class="seg" id="method">
+        <button data-v="dsp">Classic (no AI)</button>
+        <button data-v="demucs">AI (Demucs)</button>
+      </div>
+      <span class="hint" id="methodHint"></span>
+    </div>
+    <div class="row" id="strengthRow">
+      <label>Strength</label>
+      <div class="seg" id="strength">
+        <button data-v="gentle">Gentle</button>
+        <button data-v="normal">Normal</button>
+        <button data-v="aggressive">Aggressive</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>Format</label>
+      <div class="seg" id="format">
+        <button data-v="m4a">M4A</button>
+        <button data-v="flac">FLAC</button>
+        <button data-v="wav">WAV</button>
+        <button data-v="mp3">MP3</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Drop audio files or click to choose">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M4 8v7c0 1.7 3.6 3 8 3s8-1.3 8-3V8"/><path d="M3 3l18 18"/>
+    </svg>
+    <strong>Drop songs or folders here</strong>
+    <span>MP3, M4A, FLAC, WAV, AIFF… Already-processed songs are skipped.</span>
+    <input id="picker" type="file" accept="audio/*,.m4a,.flac,.aiff,.aif" multiple hidden>
+  </div>
+
+  <div class="listhead">
+    <h2 id="summary">Nothing yet</h2>
+    <button id="clear">Clear finished</button>
+  </div>
+  <ul id="jobs"></ul>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const AUDIO = /\.(mp3|m4a|aac|wav|aif|aiff|flac|ogg|opus|alac|caf|wma)$/i;
+let cfg = {};
+let pendingUploads = 0;
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+const post = (path, data) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify(data || {}) });
+
+// ---------- settings
+function renderConfig() {
+  $('#dir').value = cfg.save_dir;
+  for (const id of ['method', 'strength', 'format'])
+    document.querySelectorAll(`#${id} button`).forEach(b => b.setAttribute('aria-pressed', b.dataset.v === cfg[id]));
+  const demucsBtn = $('#method [data-v=demucs]');
+  demucsBtn.disabled = !cfg.demucs_available;
+  $('#methodHint').textContent = cfg.demucs_available
+    ? (cfg.method === 'demucs' ? 'Cleanest result. ~20–40 s per song.' : 'Fast. Some guitar/piano attack may soften.')
+    : 'Install Demucs to enable AI mode.';
+  $('#strengthRow').style.display = cfg.method === 'dsp' ? '' : 'none';
+  $('#pick').style.display = cfg.can_pick_folder ? '' : 'none';
+}
+async function setConfig(patch) {
+  try { cfg = await post('/api/config', patch); renderConfig(); }
+  catch (e) { toast(e.message); renderConfig(); }
+}
+for (const id of ['method', 'strength', 'format'])
+  $('#' + id).addEventListener('click', e => { const v = e.target.dataset.v; if (v) setConfig({ [id]: v }); });
+$('#dir').addEventListener('change', e => setConfig({ save_dir: e.target.value.trim() }));
+$('#pick').addEventListener('click', async () => {
+  toast('Choose a folder in the window that just opened');
+  const r = await post('/api/pick-folder').catch(e => (toast(e.message), null));
+  if (r && !r.cancelled) { cfg = r; renderConfig(); toast('Saving to ' + cfg.save_dir); }
+});
+
+// ---------- dropping (files and whole folders)
+async function walk(entry, out) {
+  if (entry.isFile) {
+    if (AUDIO.test(entry.name)) out.push(await new Promise((res, rej) => entry.file(res, rej)));
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    let batch;
+    do {   // readEntries returns at most ~100 at a time
+      batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      for (const child of batch) await walk(child, out);
+    } while (batch.length);
+  }
+}
+
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove('over')));
+window.addEventListener('dragover', e => e.preventDefault());   // stop the browser opening a missed drop
+window.addEventListener('drop', e => e.preventDefault());
+drop.addEventListener('drop', async e => {
+  e.preventDefault();
+  const entries = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  const files = [];
+  if (entries.length) for (const en of entries) await walk(en, files);
+  else files.push(...[...e.dataTransfer.files].filter(f => AUDIO.test(f.name)));
+  enqueue(files);
+});
+drop.addEventListener('click', () => $('#picker').click());
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') $('#picker').click(); });
+$('#picker').addEventListener('change', e => { enqueue([...e.target.files]); e.target.value = ''; });
+
+// Upload two at a time; the server queues and processes them one by one.
+const uploadQueue = [];
+function enqueue(files) {
+  if (!files.length) return toast('No audio files found in that drop.');
+  uploadQueue.push(...files);
+  pendingUploads += files.length;
+  render();
+  for (let i = 0; i < 2; i++) pump();
+}
+let active = 0;
+async function pump() {
+  if (active >= 2 || !uploadQueue.length) return;
+  active++;
+  const file = uploadQueue.shift();
+  const fd = new FormData(); fd.append('file', file, file.name);
+  try { await api('/api/upload', { method: 'POST', body: fd }); }
+  catch (e) { toast(`${file.name}: ${e.message}`); }
+  active--; pendingUploads--;
+  poll(); pump();
+}
+
+// ---------- job list
+let jobs = [];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function render() {
+  const counts = { done: 0, skipped: 0, error: 0, active: 0 };
+  for (const j of jobs) (j.status in counts ? counts[j.status]++ : counts.active++);
+  const parts = [];
+  if (counts.active + pendingUploads) parts.push(`${counts.active + pendingUploads} in progress`);
+  if (counts.done) parts.push(`${counts.done} done`);
+  if (counts.skipped) parts.push(`${counts.skipped} skipped`);
+  if (counts.error) parts.push(`${counts.error} failed`);
+  $('#summary').textContent = parts.join(' · ') || 'Nothing yet';
+
+  const list = $('#jobs');
+  if (!jobs.length) { list.innerHTML = `<li class="empty">Processed songs will show up here.</li>`; return; }
+  // Keep existing <audio> elements so playback isn't interrupted by polling.
+  const keep = new Map([...list.querySelectorAll('li[data-id]')].map(li => [li.dataset.id, li]));
+  list.replaceChildren(...jobs.map(j => {
+    let li = keep.get(j.id);
+    const sig = `${j.status}|${j.stage}|${Math.round(j.progress * 100)}`;
+    if (li && li.dataset.sig === sig) return li;
+    li = document.createElement('li');
+    li.dataset.id = j.id; li.dataset.sig = sig; li.className = j.status;
+    const sub = [j.artist, j.method === 'demucs' ? 'AI' : 'Classic', j.seconds && `${j.seconds}s`].filter(Boolean).join(' · ');
+    const badge = { done: '✓ Done', error: 'Failed', skipped: j.stage }[j.status] || j.stage;
+    li.innerHTML = `
+      <div class="top">
+        <div class="name"><b>${esc(j.title || j.name)}</b><small>${esc(sub)}</small></div>
+        <span class="badge">${esc(badge)}</span>
+      </div>
+      ${['queued', 'working'].includes(j.status) ? `<div class="bar"><i style="width:${j.progress * 100}%"></i></div>` : ''}
+      ${j.error ? `<div class="err">${esc(j.error)}</div>` : ''}
+      ${j.status === 'done' && j.has_output ? `
+        <div class="actions">
+          <audio controls preload="none" src="/api/jobs/${j.id}/audio"></audio>
+          ${cfg.can_pick_folder ? `<button data-reveal="${j.id}">Show in Finder</button>` : ''}
+        </div>` : ''}`;
+    if (j.status === 'skipped') li.classList.add('compact');
+    return li;
+  }));
+}
+$('#jobs').addEventListener('click', e => {
+  const id = e.target.dataset.reveal;
+  if (id) post(`/api/jobs/${id}/reveal`).catch(err => toast(err.message));
+});
+$('#clear').addEventListener('click', async () => { await post('/api/jobs/clear'); poll(); });
+
+let timer;
+async function poll() {
+  clearTimeout(timer);
+  try { jobs = await api('/api/jobs'); render(); } catch {}
+  const busy = pendingUploads || jobs.some(j => ['queued', 'working'].includes(j.status));
+  timer = setTimeout(poll, busy ? 800 : 4000);
+}
+
+(async () => {
+  try { cfg = await api('/api/config'); renderConfig(); }
+  catch { toast('Can’t reach the Drumless server. Is it running?'); }
+  poll();
+})();
+</script>
+</body>
+</html>
