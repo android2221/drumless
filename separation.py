@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -28,10 +29,13 @@ KICK_BAND_HZ = 200
 
 # ---------------------------------------------------------------- ffmpeg helpers
 
+FFMPEG_INSTALL = "brew install ffmpeg" if sys.platform == "darwin" else "sudo apt-get install -y ffmpeg"
+
+
 def ffmpeg_bin() -> str:
     path = shutil.which("ffmpeg")
     if not path:
-        raise RuntimeError("ffmpeg not found. Install it with: brew install ffmpeg")
+        raise RuntimeError(f"ffmpeg not found. Install it with: {FFMPEG_INSTALL}")
     return path
 
 
@@ -84,6 +88,16 @@ CODECS = {
     "wav": ["-c:a", "pcm_s16le"],
     "mp3": ["-c:a", "libmp3lame", "-b:a", "320k"],
 }
+
+# Output format for each source extension when the format setting is "auto".
+AUTO_FORMATS = {".mp3": "mp3", ".flac": "flac", ".wav": "wav", ".aif": "wav", ".aiff": "wav"}
+
+
+def resolve_format(fmt: str, source_name: str) -> str:
+    """Turn "auto" into the source file's own format (M4A for anything we can't write back)."""
+    if fmt != "auto":
+        return fmt
+    return AUTO_FORMATS.get(Path(source_name).suffix.lower(), "m4a")
 
 
 def encode(audio: np.ndarray, source: Path, dest: Path, fmt: str, title: str | None) -> None:

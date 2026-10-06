@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import queue
 import re
@@ -39,7 +40,7 @@ DEFAULTS = {
     "save_dir": str(Path.home() / "Music" / "Drumless"),
     "method": "dsp",        # "dsp" (no AI) or "demucs"
     "strength": "normal",   # dsp only: gentle / normal / aggressive
-    "format": "m4a",        # m4a / flac / wav / mp3
+    "format": "auto",       # auto (same as the source file) / m4a / flac / wav / mp3
     "rename_title": True,   # append " (No Drums)" to the title tag
 }
 
@@ -197,13 +198,13 @@ def set_config(body: ConfigIn):
     if "save_dir" in changes:
         p = Path(changes["save_dir"]).expanduser()
         if not p.is_absolute():
-            raise HTTPException(400, "Use a full folder path, like /Users/you/Music/Drumless")
+            raise HTTPException(400, f"Use a full folder path, like {Path.home() / 'Music' / 'Drumless'}")
         changes["save_dir"] = str(p)
     if changes.get("method") not in (None, "dsp", "demucs"):
         raise HTTPException(400, "Unknown method")
     if changes.get("method") == "demucs" and not separation.demucs_available():
         raise HTTPException(400, "Demucs isn't installed yet. Run: pip install demucs")
-    if changes.get("format") not in (None, *separation.CODECS):
+    if changes.get("format") not in (None, "auto", *separation.CODECS):
         raise HTTPException(400, "Unknown format")
     if changes.get("strength") not in (None, *separation.STRENGTH_MARGINS):
         raise HTTPException(400, "Unknown strength")
@@ -231,6 +232,7 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(400, f"{name} isn't an audio file I recognise.")
 
     cfg = load_config()
+    cfg["format"] = separation.resolve_format(cfg["format"], name)
     save_dir = Path(cfg["save_dir"])
     try:
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -328,7 +330,9 @@ def index():
 
 
 if __name__ == "__main__":
+    host = os.environ.get("DRUMLESS_HOST", "127.0.0.1")
+    port = int(os.environ.get("DRUMLESS_PORT", "8765"))
     if not shutil.which("ffmpeg"):
-        print("⚠️  ffmpeg is missing. Install it with: brew install ffmpeg")
-    print("Drumless running at http://127.0.0.1:8765")
-    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
+        print(f"⚠️  ffmpeg is missing. Install it with: {separation.FFMPEG_INSTALL}")
+    print(f"Drumless running at http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
