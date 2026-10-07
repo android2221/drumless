@@ -38,8 +38,6 @@ TMP_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".aif", ".aiff", ".flac", ".ogg", ".opus", ".alac", ".caf", ".wma"}
 DEFAULTS = {
     "save_dir": str(Path.home() / "Music" / "Drumless"),
-    "method": "dsp",        # "dsp" (no AI) or "demucs"
-    "strength": "normal",   # dsp only: gentle / normal / aggressive
     "format": "auto",       # auto (same as the source file) / m4a / flac / wav / mp3
     "rename_title": True,   # append " (No Drums)" to the title tag
 }
@@ -54,7 +52,8 @@ work: "queue.Queue[str]" = queue.Queue()
 
 def load_config() -> dict:
     try:
-        return {**DEFAULTS, **json.loads(CONFIG_FILE.read_text())}
+        saved = json.loads(CONFIG_FILE.read_text())
+        return {**DEFAULTS, **{k: v for k, v in saved.items() if k in DEFAULTS}}
     except (FileNotFoundError, json.JSONDecodeError):
         return dict(DEFAULTS)
 
@@ -147,10 +146,7 @@ def process(job_id: str, job: dict) -> None:
     update(job_id, status="working", started=time.time())
     progress("Decoding", 0.05)
 
-    if cfg["method"] == "demucs":
-        out = separation.remove_drums_demucs(separation.decode(src), progress)
-    else:
-        out = separation.remove_drums_dsp(separation.decode(src), cfg["strength"], progress)
+    out = separation.remove_drums(separation.decode(src), progress)
 
     progress("Saving", 0.9)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -163,7 +159,7 @@ def process(job_id: str, job: dict) -> None:
         m = load_manifest(save_dir)
         m["sources"][job["hash"]] = {
             "source": job["name"], "output": str(dest.relative_to(save_dir)),
-            "method": cfg["method"], "date": datetime.now().isoformat(timespec="seconds"),
+            "date": datetime.now().isoformat(timespec="seconds"),
         }
         m["outputs"][sha256_file(dest)] = str(dest.relative_to(save_dir))
         write_manifest(save_dir, m)
@@ -178,8 +174,6 @@ threading.Thread(target=worker, daemon=True).start()
 
 class ConfigIn(BaseModel):
     save_dir: Optional[str] = None
-    method: Optional[str] = None
-    strength: Optional[str] = None
     format: Optional[str] = None
     rename_title: Optional[bool] = None
 
@@ -187,8 +181,7 @@ class ConfigIn(BaseModel):
 @app.get("/api/config")
 def get_config():
     cfg = load_config()
-    return {**cfg, "demucs_available": separation.demucs_available(),
-            "can_pick_folder": platform.system() == "Darwin"}
+    return {**cfg, "can_pick_folder": platform.system() == "Darwin"}
 
 
 @app.post("/api/config")
@@ -200,14 +193,8 @@ def set_config(body: ConfigIn):
         if not p.is_absolute():
             raise HTTPException(400, f"Use a full folder path, like {Path.home() / 'Music' / 'Drumless'}")
         changes["save_dir"] = str(p)
-    if changes.get("method") not in (None, "dsp", "demucs"):
-        raise HTTPException(400, "Unknown method")
-    if changes.get("method") == "demucs" and not separation.demucs_available():
-        raise HTTPException(400, "Demucs isn't installed yet. Run: pip install demucs")
     if changes.get("format") not in (None, "auto", *separation.CODECS):
         raise HTTPException(400, "Unknown format")
-    if changes.get("strength") not in (None, *separation.STRENGTH_MARGINS):
-        raise HTTPException(400, "Unknown strength")
     cfg.update(changes)
     save_config(cfg)
     return get_config()
@@ -287,7 +274,6 @@ def public(job: dict) -> dict:
     out = {k: job.get(k) for k in keys}
     out["title"] = first(job["tags"], "title", "sort_name")
     out["artist"] = first(job["tags"], "artist", "album_artist", "sort_artist")
-    out["method"] = job["config"]["method"]
     out["has_output"] = job["status"] in ("done", "skipped") and Path(job["output"]).exists()
     return out
 

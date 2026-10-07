@@ -32,18 +32,10 @@ if [ ! -f .venv/.deps-ok ] || [ requirements.txt -nt .venv/.deps-ok ]; then
     fi
   fi
   .venv/bin/pip install --upgrade pip -q
-  # --prefer-binary: take a slightly older prebuilt wheel over compiling the newest release
-  # (numba/llvmlite no longer ship wheels for Intel-mac Python, and building them fails).
+  # --prefer-binary: take an older prebuilt wheel over compiling the newest release
+  # (PyTorch no longer ships wheels for Intel-mac Python). Downloads about 1 GB.
   .venv/bin/pip install --prefer-binary -r requirements.txt -q
   touch .venv/.deps-ok
-fi
-
-# Optional AI mode: ./start.command --with-ai  (one-time ~2 GB download for PyTorch + model)
-if [ "$1" = "--with-ai" ]; then
-  echo "Installing Demucs (AI mode)…"
-  # demucs 4.0.1: 4.1 needs a Rust-built package with no wheel for Intel-mac Python (same model either way).
-  # numpy<2: the last PyTorch for Intel-mac Python (2.2) can't talk to NumPy 2.
-  .venv/bin/pip install --prefer-binary "demucs==4.0.1" soundfile "numpy<2" -q
 fi
 
 # Open the browser when there's a desktop to open it on (skipped on a headless server).

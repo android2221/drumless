@@ -1,6 +1,7 @@
 fastapi>=0.110
 uvicorn>=0.29
 python-multipart>=0.0.9
-numpy>=1.26
-librosa>=0.10
-scipy>=1.11
+# numpy<2 and demucs 4.0.1 keep this installable on Intel-mac Python: the last PyTorch built for it
+# (2.2) can't talk to NumPy 2, and demucs 4.1 needs a Rust-built package with no wheel there.
+numpy>=1.26,<2
+demucs==4.0.1

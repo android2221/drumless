@@ -6,7 +6,8 @@ Drop songs into a web page; get copies back without drums. Runs entirely on your
 ## Start it
 
 1. Double-click **start.command** (or run `./start.command` in Terminal from this folder).
-   The first run installs ffmpeg (via Homebrew) and the Python packages. That takes a few minutes.
+   The first run installs ffmpeg (via Homebrew) and the Python packages, including PyTorch
+   (about 1 GB). That takes a few minutes.
 2. Your browser opens **http://127.0.0.1:8765**.
 3. Click **Choose…** to pick a save folder, then drag songs or whole folders onto the page.
 
@@ -31,16 +32,13 @@ do that on a network you trust.
 
 ## How it works
 
-- **Classic (no AI)** — splits the spectrum into bass, mid and treble and removes what looks like
-  a drum hit in each: sudden thumps in the bass, short broadband bursts above it. Fast (a few
-  seconds per song) and needs nothing extra, but drums are only turned down, never gone, and
-  plucked/strummed attacks soften. Strength trades drum removal against damage to the music:
-  - *Gentle*: cleanest music, drums a little quieter.
-  - *Normal*: the best balance by measurement.
-  - *Aggressive*: most removal; the music gets noticeably duller.
-- **AI (Demucs)** — Meta's htdemucs model, running on the Mac's GPU. Much cleaner, roughly
-  20–40 s per song. Turn it on once with `./start.command --with-ai` (downloads ~2 GB of PyTorch,
-  plus an ~80 MB model on the first song).
+Drums are separated by Meta's **htdemucs** model (Demucs), run locally; everything except the
+drum stem is mixed back together. It uses the Mac's GPU (or an NVIDIA GPU on Linux) when there
+is one, and falls back to the CPU, which is much slower. On a Mac with a GPU expect roughly
+5 seconds per minute of music.
+
+The model (~80 MB) downloads once, on the first song, from `dl.fbaipublicfiles.com` and is cached
+in `~/.cache/torch/hub/checkpoints/`. After that no network access is needed.
 
 ## Where files go
 
@@ -59,7 +57,7 @@ source file processed into it. A song is skipped when:
 - it's itself a Drumless output, or
 - a file with the same output name already exists.
 
-To redo a song (for example with AI mode), delete its output file and drop it again.
+To redo a song, delete its output file and drop it again.
 
 ## Settings
 
@@ -69,5 +67,5 @@ something else, like OGG), M4A (AAC 256k), FLAC, WAV, MP3 (320k).
 ## Files
 
 - `app.py` — local web server, job queue, duplicate checks
-- `separation.py` — decoding, the two drum-removal methods, tag-preserving export
+- `separation.py` — decoding, drum removal (Demucs), tag-preserving export
 - `static/index.html` — the drag-and-drop page

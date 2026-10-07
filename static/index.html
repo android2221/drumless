@@ -43,7 +43,6 @@
   .seg button + button { border-left: 1px solid var(--line); }
   .seg button[aria-pressed=true] { background: var(--ink); color: var(--bg); }
   .seg button:disabled { opacity: .4; cursor: not-allowed; }
-  .hint { font-size: 12px; color: var(--muted); }
 
   #drop { border: 2px dashed var(--line); border-radius: 18px; background: var(--drop);
           padding: 54px 20px; text-align: center; cursor: pointer; transition: .15s; }
@@ -92,22 +91,6 @@
       <div class="folder">
         <input id="dir" type="text" spellcheck="false" autocomplete="off">
         <button id="pick" title="Choose a folder">Choose…</button>
-      </div>
-    </div>
-    <div class="row">
-      <label>Method</label>
-      <div class="seg" id="method">
-        <button data-v="dsp">Classic (no AI)</button>
-        <button data-v="demucs">AI (Demucs)</button>
-      </div>
-      <span class="hint" id="methodHint"></span>
-    </div>
-    <div class="row" id="strengthRow">
-      <label>Strength</label>
-      <div class="seg" id="strength">
-        <button data-v="gentle">Gentle</button>
-        <button data-v="normal">Normal</button>
-        <button data-v="aggressive">Aggressive</button>
       </div>
     </div>
     <div class="row">
@@ -162,22 +145,14 @@ const post = (path, data) => api(path, { method: 'POST', headers: { 'Content-Typ
 // ---------- settings
 function renderConfig() {
   $('#dir').value = cfg.save_dir;
-  for (const id of ['method', 'strength', 'format'])
-    document.querySelectorAll(`#${id} button`).forEach(b => b.setAttribute('aria-pressed', b.dataset.v === cfg[id]));
-  const demucsBtn = $('#method [data-v=demucs]');
-  demucsBtn.disabled = !cfg.demucs_available;
-  $('#methodHint').textContent = cfg.demucs_available
-    ? (cfg.method === 'demucs' ? 'Cleanest result. ~20–40 s per song.' : 'Fast. Some guitar/piano attack may soften.')
-    : 'Install Demucs to enable AI mode.';
-  $('#strengthRow').style.display = cfg.method === 'dsp' ? '' : 'none';
+  document.querySelectorAll('#format button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === cfg.format));
   $('#pick').style.display = cfg.can_pick_folder ? '' : 'none';
 }
 async function setConfig(patch) {
   try { cfg = await post('/api/config', patch); renderConfig(); }
   catch (e) { toast(e.message); renderConfig(); }
 }
-for (const id of ['method', 'strength', 'format'])
-  $('#' + id).addEventListener('click', e => { const v = e.target.dataset.v; if (v) setConfig({ [id]: v }); });
+$('#format').addEventListener('click', e => { const v = e.target.dataset.v; if (v) setConfig({ format: v }); });
 $('#dir').addEventListener('change', e => setConfig({ save_dir: e.target.value.trim() }));
 $('#pick').addEventListener('click', async () => {
   toast('Choose a folder in the window that just opened');
@@ -261,7 +236,7 @@ function render() {
     if (li && li.dataset.sig === sig) return li;
     li = document.createElement('li');
     li.dataset.id = j.id; li.dataset.sig = sig; li.className = j.status;
-    const sub = [j.artist, j.method === 'demucs' ? 'AI' : 'Classic', j.seconds && `${j.seconds}s`].filter(Boolean).join(' · ');
+    const sub = [j.artist, j.seconds && `${j.seconds}s`].filter(Boolean).join(' · ');
     const badge = { done: '✓ Done', error: 'Failed', skipped: j.stage }[j.status] || j.stage;
     li.innerHTML = `
       <div class="top">
